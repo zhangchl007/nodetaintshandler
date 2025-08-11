@@ -1,5 +1,5 @@
 # Multi-stage build
-FROM golang:1.22-alpine3.20 AS builder
+FROM golang:1.23-alpine3.20 AS builder
 WORKDIR /src
 ENV CGO_ENABLED=0 GOOS=linux
 RUN apk update && apk upgrade --no-cache && apk add --no-cache git ca-certificates && update-ca-certificates

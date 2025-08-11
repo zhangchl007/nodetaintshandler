@@ -11,12 +11,15 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 )
 
 // Controller watches Nodes with the startup taint and removes it once the init pod on that node is Ready.
 type Controller struct {
-	client kubernetes.Interface
+	client     kubernetes.Interface
+	podIndexer cache.Indexer
 }
 
 func NewController(client kubernetes.Interface) *Controller {
@@ -27,6 +30,20 @@ func (c *Controller) Run(stop <-chan struct{}) {
 	factory := informers.NewSharedInformerFactory(c.client, 30*time.Second)
 	nodeInformer := factory.Core().V1().Nodes().Informer()
 	podInformer := factory.Core().V1().Pods().Informer()
+
+	// Index pods by node name for efficient lookup
+	_ = podInformer.AddIndexers(cache.Indexers{
+		"byNode": func(obj interface{}) ([]string, error) {
+			p, ok := obj.(*corev1.Pod)
+			if !ok || p.Spec.NodeName == "" {
+				return []string{}, nil
+			}
+			return []string{p.Spec.NodeName}, nil
+		},
+	})
+
+	c.podIndexer = podInformer.GetIndexer()
+
 	nodeInformer.AddEventHandler(cacheResourceHandler(c.handleNode))
 	podInformer.AddEventHandler(cacheResourceHandler(c.handlePod))
 	factory.Start(stop)
@@ -86,7 +103,7 @@ func (c *Controller) handleNode(obj interface{}) {
 
 func HasStartupTaint(node *corev1.Node) bool {
 	for _, t := range node.Spec.Taints {
-		if t.Key == TaintKey && t.Value == TaintValue && string(t.Effect) == TaintEffectStr {
+		if t.Key == TaintKey && t.Value == TaintValue && t.Effect == corev1.TaintEffectNoSchedule {
 			return true
 		}
 	}
@@ -94,6 +111,36 @@ func HasStartupTaint(node *corev1.Node) bool {
 }
 
 func (c *Controller) startupPodReady(nodeName string) (bool, error) {
+	// Use index (fall back to API list if indexer nil)
+	if c.podIndexer != nil {
+		objs, _ := c.podIndexer.ByIndex("byNode", nodeName)
+		for _, o := range objs {
+			p := o.(*corev1.Pod)
+			if p.Labels[StartPodLabelKey] != StartPodLabelValue {
+				continue
+			}
+			if p.Annotations != nil && p.Annotations[StartPodReadyAnnotation] == "true" {
+				return true, nil
+			}
+			allReady := true
+			for _, cs := range p.Status.ContainerStatuses {
+				if !cs.Ready {
+					allReady = false
+					break
+				}
+			}
+			if !allReady {
+				continue
+			}
+			for _, cond := range p.Status.Conditions {
+				if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}
+	// Fallback to API list
 	pods, err := c.client.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector("spec.nodeName", nodeName).String(),
 		LabelSelector: StartPodLabelKey + "=" + StartPodLabelValue,
@@ -102,19 +149,17 @@ func (c *Controller) startupPodReady(nodeName string) (bool, error) {
 		return false, err
 	}
 	for _, p := range pods.Items {
-		// Fake client does not enforce field selectors; ensure node matches.
 		if p.Spec.NodeName != nodeName {
 			continue
 		}
-		// Shortcut: annotation explicitly set
 		if p.Annotations != nil && p.Annotations[StartPodReadyAnnotation] == "true" {
 			return true, nil
 		}
+		allReady := true
 		readyCond := false
-		allContainers := true
 		for _, cs := range p.Status.ContainerStatuses {
 			if !cs.Ready {
-				allContainers = false
+				allReady = false
 				break
 			}
 		}
@@ -124,7 +169,7 @@ func (c *Controller) startupPodReady(nodeName string) (bool, error) {
 				break
 			}
 		}
-		if readyCond && allContainers {
+		if allReady && readyCond {
 			return true, nil
 		}
 	}
@@ -132,27 +177,31 @@ func (c *Controller) startupPodReady(nodeName string) (bool, error) {
 }
 
 func (c *Controller) removeStartupTaint(node *corev1.Node) error {
-	n, err := c.client.CoreV1().Nodes().Get(context.TODO(), node.Name, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	newTaints := n.Spec.Taints[:0]
-	for _, t := range n.Spec.Taints {
-		if t.Key == TaintKey && t.Value == TaintValue && string(t.Effect) == TaintEffectStr {
-			continue
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		n, err := c.client.CoreV1().Nodes().Get(context.TODO(), node.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
 		}
-		newTaints = append(newTaints, t)
-	}
-	if len(newTaints) == len(n.Spec.Taints) {
-		return nil
-	}
-	n.Spec.Taints = newTaints
-	if n.Annotations == nil {
-		n.Annotations = map[string]string{}
-	}
-	n.Annotations[NodeStartupCompletedAnnotation] = strconv.FormatInt(time.Now().Unix(), 10)
-	_, err = c.client.CoreV1().Nodes().Update(context.TODO(), n, metav1.UpdateOptions{})
-	return err
+		newTaints := n.Spec.Taints[:0]
+		changed := false
+		for _, t := range n.Spec.Taints {
+			if t.Key == TaintKey && t.Value == TaintValue && t.Effect == corev1.TaintEffectNoSchedule {
+				changed = true
+				continue
+			}
+			newTaints = append(newTaints, t)
+		}
+		if !changed {
+			return nil
+		}
+		n.Spec.Taints = newTaints
+		if n.Annotations == nil {
+			n.Annotations = map[string]string{}
+		}
+		n.Annotations[NodeStartupCompletedAnnotation] = strconv.FormatInt(time.Now().Unix(), 10)
+		_, err = c.client.CoreV1().Nodes().Update(context.TODO(), n, metav1.UpdateOptions{})
+		return err
+	})
 }
 
 func (c *Controller) backfillTaint() {
@@ -184,6 +233,18 @@ func (c *Controller) backfillTaint() {
 }
 
 func (c *Controller) hasWorkloadPods(nodeName string) bool {
+	if c.podIndexer != nil {
+		objs, _ := c.podIndexer.ByIndex("byNode", nodeName)
+		for _, o := range objs {
+			p := o.(*corev1.Pod)
+			ns := p.Namespace
+			if ns != "kube-system" && ns != "kube-public" {
+				return true
+			}
+		}
+		return false
+	}
+	// Fallback to API list
 	pods, err := c.client.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector("spec.nodeName", nodeName).String(),
 	})
