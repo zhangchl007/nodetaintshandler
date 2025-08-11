@@ -1,0 +1,123 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nodetaintshandler
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nodetaintshandler
+rules:
+  - apiGroups: [""]
+    resources: ["nodes","pods"]
+    verbs: ["get","list","watch","update","patch"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets","deployments"]
+    verbs: ["get","list","watch","update","patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nodetaintshandler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nodetaintshandler
+subjects:
+  - kind: ServiceAccount
+    name: nodetaintshandler
+    namespace: kube-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-startup-webhook
+  namespace: kube-system
+  labels:
+    app: nodetaintshandler
+spec:
+  selector:
+    app: nodetaintshandler
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nodetaintshandler
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nodetaintshandler
+  template:
+    metadata:
+      labels:
+        app: nodetaintshandler
+    spec:
+      serviceAccountName: nodetaintshandler
+      containers:
+        - name: nodetaintshandler
+          image: zhangchl007/nodetaintshandler:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: STARTUP_WEBHOOK
+              value: "1"
+            # Uncomment to enable backfill of missed nodes
+            # - name: STARTUP_BACKFILL
+            #   value: "1"
+          ports:
+            - containerPort: 8443
+              name: webhook
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8443
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+---
+# Replace <BASE64_CA_CERT> with the base64-encoded CA that signs the webhook server certificate.
+# Ensure the container serves HTTPS on :8443 with matching cert/key (mount via Secret) in production.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: node-startup-taint
+webhooks:
+  - name: nodestartup.taint.add.nodetaintshandler.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    timeoutSeconds: 5
+    failurePolicy: Ignore
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["nodes"]
+    clientConfig:
+      service:
+        namespace: kube-system
+        name: node-startup-webhook
+        path: /mutate-node
+      caBundle: <BASE64_CA_CERT>
