@@ -14,7 +14,7 @@ This project applies a temporary startup taint to new (user) nodes, blocks workl
      effect: NoSchedule
    ```
 3. Startup DaemonSet ([deploy/startup-daemonset.yaml](deploy/startup-daemonset.yaml)) (label `startup.k8s.io/component=init`) runs per node performing warm-up.
-4. Controller ([`startup.Controller`](pkg/startup/controller.go)) detects the init Pod ready (annotation or PodReady) and removes the taint.
+4. Controller ([`startup.Controller`](pkg/nodetaintshandler/controller.go)) detects the init Pod ready (annotation or PodReady) and removes the taint.
 5. Workload Pods begin scheduling.
 
 ## Features
@@ -32,4 +32,4 @@ Patch key DaemonSets (examples):
 kubectl -n kube-system patch ds kube-proxy --type='json' -p='[{"op":"add","path":"/spec/template/spec/tolerations/-","value":{"key":"startup.k8s.io/initializing","operator":"Equal","value":"wait","effect":"NoSchedule"}}]'
 ```
 
-Referenced symbols: [`webhook.MutateNode`](pkg/webhook/node_webhook.go), [`startup.Controller`](pkg/startup/controller.go), [`startup.HasStartupTaint`](pkg/startup/controller.go)
+Referenced symbols: [`webhook.MutateNode`](pkg/webhook/node_webhook.go), [`startup.Controller`](pkg/nodetaintshandler/controller.go), [`startup.HasStartupTaint`](pkg/nodetaintshandler/controller.go)

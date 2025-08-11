@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zhangchl007/nodetaintshandler/pkg/startup"
+	startup "github.com/zhangchl007/nodetaintshandler/pkg/nodetaintshandler"
 	"github.com/zhangchl007/nodetaintshandler/pkg/webhook"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
