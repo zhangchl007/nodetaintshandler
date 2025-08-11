@@ -10,7 +10,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	startup "github.com/zhangchl007/nodetaintshandler/pkg/nodetaintshandler"
+	startup "github.com/zhangchl007/nodetaintshandler/pkg/startup"
 )
 
 type patchOp struct {
