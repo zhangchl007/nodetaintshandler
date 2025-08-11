@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -105,8 +104,7 @@ func serveMutate(w http.ResponseWriter, r *http.Request) {
 
 	// Write response
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if _, err := io.WriteString(w, string(respBytes)); err != nil {
+	if _, err := w.Write(respBytes); err != nil {
 		klog.Errorf("could not write response: %v", err)
 	}
 }

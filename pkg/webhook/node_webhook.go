@@ -8,6 +8,7 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 
 	startup "github.com/zhangchl007/nodetaintshandler/pkg/startup"
@@ -89,10 +90,14 @@ func MutateNode(w http.ResponseWriter, r *http.Request) {
 
 func writePatch(w http.ResponseWriter, in admissionv1.AdmissionReview, patch []byte) {
 	pt := admissionv1.PatchTypeJSONPatch
+	var uid types.UID
+	if in.Request != nil {
+		uid = in.Request.UID
+	}
 	resp := admissionv1.AdmissionReview{
 		TypeMeta: in.TypeMeta,
 		Response: &admissionv1.AdmissionResponse{
-			UID:       in.Request.UID,
+			UID:       uid,
 			Allowed:   true,
 			Patch:     patch,
 			PatchType: &pt,
@@ -103,14 +108,18 @@ func writePatch(w http.ResponseWriter, in admissionv1.AdmissionReview, patch []b
 	w.Write(out)
 }
 
-func writeResponse(w http.ResponseWriter, in admissionv1.AdmissionReview, patch []byte) {
+func writeResponse(w http.ResponseWriter, in admissionv1.AdmissionReview, _ []byte) {
+	var uid types.UID
+	if in.Request != nil {
+		uid = in.Request.UID
+	}
 	resp := admissionv1.AdmissionReview{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "AdmissionReview",
 			APIVersion: "admission.k8s.io/v1",
 		},
 		Response: &admissionv1.AdmissionResponse{
-			UID:     in.Request.UID,
+			UID:     uid,
 			Allowed: true,
 		},
 	}

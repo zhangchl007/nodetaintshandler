@@ -102,6 +102,10 @@ func (c *Controller) startupPodReady(nodeName string) (bool, error) {
 		return false, err
 	}
 	for _, p := range pods.Items {
+		// Fake client does not enforce field selectors; ensure node matches.
+		if p.Spec.NodeName != nodeName {
+			continue
+		}
 		// Shortcut: annotation explicitly set
 		if p.Annotations != nil && p.Annotations[StartPodReadyAnnotation] == "true" {
 			return true, nil
