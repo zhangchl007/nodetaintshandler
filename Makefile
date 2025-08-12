@@ -4,7 +4,7 @@ VERSION=$(shell git describe --tags --always --dirty)
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 DOCKER_REPO=zhangchl007
 DOCKER_IMAGE=$(DOCKER_REPO)/$(BINARY_NAME)
-DOCKER_TAG?=latest
+DOCKER_TAG?=v1.0
 
 # Go related variables
 GO=go
