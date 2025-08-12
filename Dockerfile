@@ -1,15 +1,26 @@
 # Multi-stage build
-FROM golang:1.23-alpine3.20 AS builder
-WORKDIR /src
-ENV CGO_ENABLED=0 GOOS=linux
-RUN apk update && apk upgrade --no-cache && apk add --no-cache git ca-certificates && update-ca-certificates
+FROM golang:1.24-alpine3.20 AS builder
+
+WORKDIR /app
+
+# Copy go mod and sum files
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
-RUN go build -trimpath -ldflags "-s -w" -o /out/nodetaintshandler ./main.go
 
-FROM gcr.io/distroless/static:nonroot
+# Copy the source code
+COPY . .
+
+# Build the Go app
+RUN CGO_ENABLED=0 GOOS=linux go build -o nodetaintshandler main.go
+
+# Use a minimal image for running
+# FROM gcr.io/distroless/base-debian12
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates
 WORKDIR /app
-COPY --from=builder /out/nodetaintshandler /app/nodetaintshandler
-USER nonroot
+
+COPY --from=builder /app/nodetaintshandler .
+
+EXPOSE 8080
+
 ENTRYPOINT ["/app/nodetaintshandler"]
