@@ -61,6 +61,32 @@ spec:
         app: nodetaintshandler
     spec:
       serviceAccountName: nodetaintshandler
+      initContainers:
+        - name: ds-patcher
+          image: bitnami/kubectl:1.30
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -euo pipefail
+              NS="kube-system"
+              PATCH_APPEND='[{"op":"add","path":"/spec/template/spec/tolerations/-","value":{"key":"startup.k8s.io/initializing","operator":"Equal","value":"wait","effect":"NoSchedule"}}]'
+              PATCH_CREATE='[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"startup.k8s.io/initializing","operator":"Equal","value":"wait","effect":"NoSchedule"}]}]'
+              for ds in $(kubectl -n "$NS" get ds -o name); do
+                # Skip if already present (jsonpath-based check; no jq needed)
+                if kubectl -n "$NS" get "$ds" -o jsonpath='{range .spec.template.spec.tolerations[*]}{.key}={"}{"}{.value}{","}{end}' \
+                  | grep -q 'startup.k8s.io/initializing=wait,'; then
+                  echo "skip $ds (already has toleration)"; continue
+                fi
+                echo "patching $ds..."
+                # Try append; if tolerations array missing, create it
+                kubectl -n "$NS" patch "$ds" --type=json -p="$PATCH_APPEND" || \
+                kubectl -n "$NS" patch "$ds" --type=json -p="$PATCH_CREATE" || true
+              done
+              echo "DaemonSets patched."
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
       containers:
         - name: nodetaintshandler
           image: zhangchl007/nodetaintshandler:latest
