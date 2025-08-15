@@ -65,7 +65,7 @@ spec:
         - name: ds-patcher
           image: bitnami/kubectl:1.30
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh","-c"]
+          command: ["/bin/bash","-c"]
           args:
             - |
               set -euo pipefail
@@ -73,41 +73,36 @@ spec:
               PATCH_APPEND='[{"op":"add","path":"/spec/template/spec/tolerations/-","value":{"key":"startup.k8s.io/initializing","operator":"Equal","value":"wait","effect":"NoSchedule"}}]'
               PATCH_CREATE='[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"startup.k8s.io/initializing","operator":"Equal","value":"wait","effect":"NoSchedule"}]}]'
               for ds in $(kubectl -n "$NS" get ds -o name); do
-                # Skip if already present (jsonpath-based check; no jq needed)
-                if kubectl -n "$NS" get "$ds" -o jsonpath='{range .spec.template.spec.tolerations[*]}{.key}={"}{"}{.value}{","}{end}' \
-                  | grep -q 'startup.k8s.io/initializing=wait,'; then
-                  echo "skip $ds (already has toleration)"; continue
+                if kubectl -n "$NS" get "$ds" -o jsonpath='{range .spec.template.spec.tolerations[*]}{.key}={"}{"}{.value}{","}{end}' | grep -q 'startup.k8s.io/initializing=wait,'; then
+                  echo "skip $ds"; continue
                 fi
                 echo "patching $ds..."
-                # Try append; if tolerations array missing, create it
                 kubectl -n "$NS" patch "$ds" --type=json -p="$PATCH_APPEND" || \
                 kubectl -n "$NS" patch "$ds" --type=json -p="$PATCH_CREATE" || true
               done
               echo "DaemonSets patched."
           securityContext:
             readOnlyRootFilesystem: true
-            runAsNonRoot: true
       containers:
         - name: nodetaintshandler
-          image: zhangchl007/nodetaintshandler:latest
+          image: zhangchl007/nodetaintshandler:v1.2
           imagePullPolicy: IfNotPresent
           env:
             - name: STARTUP_WEBHOOK
               value: "1"
-            # Uncomment to enable backfill of missed nodes
-            # - name: STARTUP_BACKFILL
-            #   value: "1"
           ports:
             - containerPort: 8443
               name: webhook
           readinessProbe:
             httpGet:
+              scheme: HTTPS
               path: /readyz
               port: 8443
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
             httpGet:
+              scheme: HTTPS
               path: /healthz
               port: 8443
             initialDelaySeconds: 5
@@ -121,11 +116,16 @@ spec:
               memory: 256Mi
           securityContext:
             readOnlyRootFilesystem: true
-            runAsNonRoot: true
             allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: webhook-tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: webhook-tls
+          secret:
+            secretName: node-startup-webhook-tls
 ---
-# Replace <BASE64_CA_CERT> with the base64-encoded CA that signs the webhook server certificate.
-# Ensure the container serves HTTPS on :8443 with matching cert/key (mount via Secret) in production.
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
@@ -146,4 +146,4 @@ webhooks:
         namespace: kube-system
         name: node-startup-webhook
         path: /mutate-node
-      caBundle: <BASE64_CA_CERT>
+      caBundle: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURKVENDQWcyZ0F3SUJBZ0lVSXdpQ01XVUt0Z2dSQkU0K3AxTnVIRVozdG13d0RRWUpLb1pJaHZjTkFRRUwKQlFBd0lqRWdNQjRHQTFVRUF3d1hibTlrWlMxemRHRnlkSFZ3TFhkbFltaHZiMnN0WTJFd0hoY05NalV3T0RFMQpNVFF3TURFMVdoY05NelV3T0RFek1UUXdNREUxV2pBaU1TQXdIZ1lEVlFRRERCZHViMlJsTFhOMFlYSjBkWEF0CmQyVmlhRzl2YXkxallUQ0NBU0l3RFFZSktvWklodmNOQVFFQkJRQURnZ0VQQURDQ0FRb0NnZ0VCQUpNYzVVbnEKcmRmOHZJQlo0RmlHdy9mYkRPZGV2MmZaNmZDR2NPcVdHeXlQQ0dPTkh6dzgzKzJaNjgxOTI1TVNtaU1SMENBaQpCWFZ1N0o0Nkg2RFRMcmljMWZyaW1rMDdIYUVVNVcvUSs3Um5XdXFrV0hxRXEvY1EzN0d5NnJTZVRhNEtra0NxCjRYQVlpa0w1bUY2N0ZHVWI2ZnUvWCtPekJ4NmE3T1RaOEY0UW02QXlCaGlGanBTREFFQncycmxqOE4rWnNtU1EKcGk3V0lKckRuRUVJcEhxTEcxZEV0VVNyL1NUUHFiOG9aOHJZVWhnN0VOL1RZWS9LdktxVmt6MUUwUmJzTG56bgpyRmxpS1dyUVgzeTk0RUdwOVJhSjREaHFRWW91ZWx0LytDQ0FrZzVoeThiS1lmM3VZWi9sc2RzUXBTN01HcE1VCnMvTEhwci9FT1pCSkJKa0NBd0VBQWFOVE1GRXdIUVlEVlIwT0JCWUVGR0pzSlRibFo0WEtDKzdpZkZZMEZaOXAKWWl1cU1COEdBMVVkSXdRWU1CYUFGR0pzSlRibFo0WEtDKzdpZkZZMEZaOXBZaXVxTUE4R0ExVWRFd0VCL3dRRgpNQU1CQWY4d0RRWUpLb1pJaHZjTkFRRUxCUUFEZ2dFQkFDWitOUU5GaWJtRzF4Szh5cTFOcVVzQ0I2eG9mejFTClpEWWp6djEyelIwREYxcWU0RkxZeUQwQTBGbExaSVM2WEFidXkrNVQwU2dLeFhOc205Vm9FTHBYQkVHb25QcGIKc2hGVzVOTXlZQVJGUGw3UU1abGhDRnJPRklkNWtrTnpleCtPaXpEMEZsMVp6d1JVRm5TbXFkZlVrVCthRm51TwpTZkVEMklUUGpJRGVzMGxyWWRSczNreXlON1VSR0RmZVBYQWNMcmZvSnY2bm55M2NjN2FnT2g5S2NENW9sZVplCjZ0dzRkd2duWWlBbzJDZVNaRUttNUFPOVVDa3FRUDFqeFAzMmRmcHdjNHBzaURNY295VGZYWDZQWGdoVTYya2MKZDlEaHMxcmQyd3VGQ3dRZTREL2YveXpBRldHSVJRcnRuT0EwSmU3YWljVzllcEc5bFVqTVlHTT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo="

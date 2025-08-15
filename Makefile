@@ -4,7 +4,7 @@ VERSION=$(shell git describe --tags --always --dirty)
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 DOCKER_REPO=zhangchl007
 DOCKER_IMAGE=$(DOCKER_REPO)/$(BINARY_NAME)
-DOCKER_TAG?=v1.0
+# or:    make docker-push DOCKER_TAG=v1.3
 
 # Go related variables
 GO=go
@@ -30,10 +30,12 @@ clean:
 
 # Build Docker image
 docker-build: build
+	@test -n "$(DOCKER_TAG)" || (echo "ERROR: set DOCKER_TAG (e.g. make docker-build DOCKER_TAG=v1.3)" >&2; exit 1)
 	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 
 # Push Docker image
 docker-push: docker-build
+	@test -n "$(DOCKER_TAG)" || (echo "ERROR: set DOCKER_TAG (e.g. make docker-push DOCKER_TAG=v1.3)" >&2; exit 1)
 	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
 
 # Format Go code
