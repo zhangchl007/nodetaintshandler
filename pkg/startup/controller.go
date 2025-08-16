@@ -97,7 +97,8 @@ func (c *Controller) handleNode(obj interface{}) {
 	if err := c.removeStartupTaint(node); err != nil {
 		klog.Warningf("remove startup taint from %s: %v", node.Name, err)
 	} else {
-		klog.Infof("Removed startup taint from node %s", node.Name)
+		klog.Infof("[startup-taint %s] Removed startup taint from node %s",
+			time.Now().UTC().Format(time.RFC3339Nano), node.Name)
 	}
 }
 
@@ -227,7 +228,8 @@ func (c *Controller) backfillTaint() {
 		if _, err := c.client.CoreV1().Nodes().Update(context.TODO(), n, metav1.UpdateOptions{}); err != nil {
 			klog.Warningf("backfill add taint %s: %v", n.Name, err)
 		} else {
-			klog.Infof("Backfilled startup taint on node %s", n.Name)
+			klog.Infof("[startup-taint %s] Backfilled startup taint on node %s",
+				time.Now().UTC().Format(time.RFC3339Nano), n.Name)
 		}
 	}
 }
