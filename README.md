@@ -53,15 +53,14 @@ Requires kubeconfig & RBAC (see [deploy/deployment.yaml](deploy/deployment.yaml)
 1. Adjust image reference in [deploy/deployment.yaml](deploy/deployment.yaml).
 2. Apply manifests:
    ```sh
+   cd deploy
+   sh generate_webhook_certs.sh
    kubectl apply -f deploy/deployment.yaml
    kubectl apply -f deploy/startup-daemonset.yaml
    ```
-3. (Prod) Provide TLS cert/key via Secret & update webhook server to use HTTPS.
-4. Patch critical system DaemonSets with toleration:
-   ```sh
-   kubectl -n kube-system patch ds kube-proxy --type=json \
-     -p='[{"op":"add","path":"/spec/template/spec/tolerations/-","value":{"key":"startup.k8s.io/initializing","operator":"Equal","value":"wait","effect":"NoSchedule"}}]'
-   ```
+1. (Prod) Provide TLS cert/key via Secret & update webhook server to use HTTPS.
+2. Patch critical system DaemonSets with toleration by deployment automatically in kube-system
+
 
 ## AKS System / User Pools
 
@@ -82,7 +81,7 @@ When enabled (`STARTUP_BACKFILL=1`) [`startup.backfillTaint`](pkg/startup/contro
 - Skips nodes with workload pods (non kube-system/kube-public)
 - Adds taint (so init DaemonSet can run) without disrupting existing workloads.
 
-## Testing
+## Unit Testing for code
 
 Focused unit tests:
 - Controller behaviors (readiness paths, removal) in [pkg/startup/controller_test.go](pkg/startup/controller_test.go)
@@ -92,16 +91,27 @@ Focused unit tests:
 ## Image Build
 
 ```sh
-docker build -t <repo>/nodetaintshandler:latest .
-docker push <repo>/nodetaintshandler:latest
+make docker-push DOCKER_TAG=v1.5
 ```
 
+## Testing for node scaling
+
+- Ensure that the controller correctly handles node scaling events (e.g., adding/removing nodes).
+- Validate that the startup taint is applied/removed as expected during scaling operations.
+- Enable autoscaling of AKS node pool
+```sh
+kubectl apply -f deploy/nginx-deploy.yaml
+
+```
+## Cleanup
+
+```sh
+kubectl delete -f deploy/startup-daemonset.yaml
+kubectl delete -f deploy/deployment.yaml
+```
 ## Hardening / Production TODO
 
-- Serve webhook over TLS (MutatingWebhookConfiguration CA bundle)
 - AuthN / narrow RBAC
 - Metrics & structured logging
 - Optional Pod webhook to auto-inject tolerations (if desired)
 - Exponential backoff / retry around Node updates
-
-##
