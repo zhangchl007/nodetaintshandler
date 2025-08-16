@@ -73,6 +73,7 @@ func MutateNode(w http.ResponseWriter, r *http.Request) {
 				Effect: corev1.TaintEffectNoSchedule,
 			}},
 		})
+		klog.Infof("Adding startup taint to new node %s (no existing taints)", node.Name)
 	} else {
 		ops = append(ops, patchOp{
 			Op:   "add",
@@ -83,6 +84,7 @@ func MutateNode(w http.ResponseWriter, r *http.Request) {
 				Effect: corev1.TaintEffectNoSchedule,
 			},
 		})
+		klog.Infof("Appending startup taint to node %s (existing taints=%d)", node.Name, len(node.Spec.Taints))
 	}
 	patchBytes, _ := json.Marshal(ops)
 	writePatch(w, review, patchBytes)
