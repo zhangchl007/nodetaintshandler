@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"time" // added
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -74,7 +73,7 @@ func MutateNode(w http.ResponseWriter, r *http.Request) {
 				Effect: corev1.TaintEffectNoSchedule,
 			}},
 		})
-		klog.Infof("[startup-taint %s] Adding startup taint to new node %s (no existing taints)", time.Now().UTC().Format(time.RFC3339Nano), node.Name)
+		klog.Infof("Adding startup taint to new node %s (no existing taints)", node.Name)
 	} else {
 		ops = append(ops, patchOp{
 			Op:   "add",
@@ -85,10 +84,10 @@ func MutateNode(w http.ResponseWriter, r *http.Request) {
 				Effect: corev1.TaintEffectNoSchedule,
 			},
 		})
-		klog.Infof("[startup-taint %s] Appending startup taint to node %s (existing taints=%d)", time.Now().UTC().Format(time.RFC3339Nano), node.Name, len(node.Spec.Taints))
+		klog.Infof("Appending startup taint to node %s (existing taints=%d)", node.Name, len(node.Spec.Taints))
 	}
 	patchBytes, _ := json.Marshal(ops)
-	klog.Infof("[startup-taint %s] Patch payload for node %s: %s", time.Now().UTC().Format(time.RFC3339Nano), node.Name, string(patchBytes))
+	klog.Infof("Patch payload for node %s: %s", node.Name, string(patchBytes))
 	writePatch(w, review, patchBytes)
 }
 
