@@ -85,7 +85,7 @@ spec:
             readOnlyRootFilesystem: true
       containers:
         - name: nodetaintshandler
-          image: zhangchl007/nodetaintshandler:v1.3
+          image: zhangchl007/nodetaintshandler:v1.5
           imagePullPolicy: IfNotPresent
           env:
             - name: STARTUP_WEBHOOK
