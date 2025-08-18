@@ -6,7 +6,7 @@ metadata:
   name: nginx
   namespace: default
 spec:
-  replicas: 20
+  replicas: 15
   selector:
     matchLabels:
       app: nginx
