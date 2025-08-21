@@ -135,7 +135,7 @@ webhooks:
     admissionReviewVersions: ["v1"]
     sideEffects: None
     timeoutSeconds: 5
-    failurePolicy: Fail
+    failurePolicy: Ignore
     rules:
       - apiGroups: [""]
         apiVersions: ["v1"]
